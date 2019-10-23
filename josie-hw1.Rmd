@@ -1,0 +1,15 @@
+---
+title: HW1
+author: Wai Laam "Josie" Lui
+date: October 24, 2019
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r preamb}
+setwd()
+```
+# Problem 1
