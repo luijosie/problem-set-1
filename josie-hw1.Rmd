@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r preamb}
-setwd("~/iCloud/Coursework/josie-19-aut/problem-set-1")
+setwd("~/iCloud/CourseWork/josie-19-aut/problem-set-1")
 library(tidyverse)
 rm(list=ls())
 ```
@@ -20,23 +20,54 @@ load("State Leg Prof Data & Codebook/legprof-components.v1.0.RData")
 ```
 
 # Problem 2
-```{r}
-sdz <- function(vec) {
+```{r p2}
+sdz <- function(vec) { # function to standardize features
   mu <- mean(vec)
   dv <- sd(vec)
   res <- (vec-mu)/dv
   return(res)
 }
-df2 <- x %>% select(state,stateabv,sessid,expend,salary_real,t_slength,slength) %>%
-  filter(sessid=="2009/10") %>%
+df2 <- x %>% filter(sessid=="2009/10") %>%
+  select(state,expend,salary_real,t_slength,slength) %>%
   drop_na(expend,salary_real,t_slength,slength) %>%
-  mutate(expend <- sdz(expend),
-         salary_real <- sdz(salary_real),
-         t_slength <- sdz(t_slength),
-         slength <- sdz(slength))
-states <- df2 %>% pull(state) %>% as.character()
+  mutate(expend = sdz(expend),
+         salary_real = sdz(salary_real),
+         t_slength = sdz(t_slength),
+         slength = sdz(slength)) %>%
+  mutate(state = (state %>% as.character() %>% factor(levels=state.name,labels=state.name)))
 ```
 
 # Problem 3
 
+## Visual Approach
+```{r p3}
+# visual inspection
+g1 <- ggplot(df2) +
+  geom_point(aes(x=salary_real,y=t_slength))+
+  labs(x="Real Salary",y="Total Session Length")
+g2 <- ggplot(df2)+
+  geom_point(aes(x=salary_real,y=slength))+
+  labs(x="Real Salary",y="Session Length")
+g3 <- ggplot(df2)+
+  geom_point(aes(x=expend,y=t_slength))+
+  labs(x="Expenditure",y="Total Session Length")
+g4 <- ggplot(df2)+
+  geom_point(aes(x=expend,y=slength))+
+  labs(x="Expenditure",y="Session Length")
+Rmisc::multiplot(g1, g2, g3, g4, cols=2)
+```
+
+I can see roughly two bocks in the plots in the left column where "Real Salary" is ploted on the x-axis. I see some outliers in the two plots with "Expenditure" on the x-axis, but I don't see multiple clusters.
+
+## Hopkins Test
+The data size is not so big (49), so we will choose 10 as the sampling size.
+
+```{r}
+clustertend::hopkins(df2 %>% select(expend,salary_real,t_slength,slength),n=10)
+clustertend::hopkins(df2 %>% select(expend,slength),n=10)
+clustertend::hopkins(df2 %>% select(expend,t_slength),n=10)
+clustertend::hopkins(df2 %>% select(salary_real,slength),n=10)
+clustertend::hopkins(df2 %>% select(salary_real,t_slength),n=10)
+clustertend::hopkins(df2 %>% select(expend,salary_real),n=10)
+```
 
