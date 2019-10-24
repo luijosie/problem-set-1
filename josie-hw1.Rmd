@@ -10,6 +10,33 @@ output:
 ---
 
 ```{r preamb}
-setwd()
+setwd("~/iCloud/Coursework/josie-19-aut/problem-set-1")
+library(tidyverse)
+rm(list=ls())
 ```
 # Problem 1
+```{r p1}
+load("State Leg Prof Data & Codebook/legprof-components.v1.0.RData")
+```
+
+# Problem 2
+```{r}
+sdz <- function(vec) {
+  mu <- mean(vec)
+  dv <- sd(vec)
+  res <- (vec-mu)/dv
+  return(res)
+}
+df2 <- x %>% select(state,stateabv,sessid,expend,salary_real,t_slength,slength) %>%
+  filter(sessid=="2009/10") %>%
+  drop_na(expend,salary_real,t_slength,slength) %>%
+  mutate(expend <- sdz(expend),
+         salary_real <- sdz(salary_real),
+         t_slength <- sdz(t_slength),
+         slength <- sdz(slength))
+states <- df2 %>% pull(state) %>% as.character()
+```
+
+# Problem 3
+
+
