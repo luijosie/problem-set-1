@@ -1,2 +1,7 @@
 # problem-set-1
-Submit your assignment here (see workflow in the syllabus for help)
+
+Homework 1 repo for Wai Laam "Josie" Lui.
+
+Rendered version: [online](josie-hw1.html)
+
+R Markdown: [raw file](josie-hw1.Rmd)
