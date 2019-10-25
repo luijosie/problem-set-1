@@ -16,6 +16,9 @@ library(skimr)
 library(dendextend)
 library(seriation) # for diss plot
 library(knitr)
+library(scales) # for color
+library(clValid) # for internal validation
+library(mclust) # for clValid
 #library(Rmisc) # will call namespace directly when needed
 rm(list=ls()) # clean working environment
 ```
@@ -30,7 +33,7 @@ df2 <- x %>% filter(sessid=="2009/10") %>%
   select(state,expend,salary_real,t_slength,slength) %>%
   drop_na(expend,salary_real,t_slength,slength) # one is dropped. 49 are left.
 state <- df2 %>% pull(state) %>% factor(levels=state.name,labels=state.name)
-df2 <- df2 %>% select(-state) %>% scale() %>% tibble() # clean DF
+df2 <- df2 %>% select(-state) %>% scale() %>% as.tibble() # clean DF
 ```
 
 # Determining Clusterability
@@ -66,7 +69,7 @@ The VAT shows roughly two clusters - a big one in the bottom right and a much sm
 ## Hopkins Test
 The data size is not so big (49), so we will choose 20 as the sampling size.
 
-```{r}
+```{r p3c}
 hop <- function(){ # function to perform the Hopkins test once
   return(clustertend::hopkins(df2,n=10)$H)
 }
@@ -84,10 +87,12 @@ From the plot we see that the central/majority tendency is around 0.15-0.20, whi
 Based on informal scatter plots, the ODI plot, and the empirical distribution of the Hopkins statistic, we have strong reason to suspect the presence of clusters. We may proceed with the various clustering methods.
 
 # Simple Agglomerative Hiearchical Cluster
-```{r p4}
+```{r p4, fig.width=6,fig.height=10}
 hc_complete <- hclust(df2_dist, #use the distance matrix
-                      method = "complete"); 
-plot(hc_complete, hang = -1,labels = state,xlab="States") # dendrogram
+                      method = "complete");
+hc_plot <- as.dendrogram(hc_complete) # to allow horizontal dendrograms
+labels(hc_plot) <- state.abb[labels(hc_plot)] # assign labels in correct order
+plot(hc_plot,horiz = TRUE) # dendrogram
 cuts <- cutree(hc_complete, 
                k = c(3,4))
 table(`3 Clusters` = cuts[,1], 
@@ -126,8 +131,8 @@ ggplot()+
   geom_sf(data = map_cluster,
           aes(geometry=geometry,
               fill = as.factor(group)),
-          lwd = 0.1)+
-  scale_fill_discrete(name = "Cluster Group") +
+          lwd = 0.3)+
+  scale_fill_manual(values = c("#d01c8b", "#4d9220"),na.value = "darkgray", name = "Cluster Group")+
   labs(title = "K-means Cluster Map for n=2",
        subtitle = "Wisconsin (NA) included for better geographical reference.")
 kable(kmeans_group %>% filter(group==2))
@@ -145,23 +150,41 @@ gmm1 <- mvnormalmixEM(df2,
                     k = 2)
 post <- gmm1$posterior
 gmm_group <- tibble(state, 
-                    group = factor(2-as.numeric(post[,1]>post[,2]))) # true = 1; false =2
-map_cluster <-gmm_group %>% full_join(state_maps,by="state")
-ggplot()+
-  geom_sf(data = map_cluster,
-          aes(geometry=geometry,
-              fill = as.factor(group)),
-          lwd = 0.1)+
-  scale_fill_discrete(name = "Cluster Group") +
-  labs(title = "GMM Cluster Map for n=2",
-       subtitle = "Wisconsin (NA) included for better geographical reference.")
+                    group = factor(2-as.numeric(post[,1]>post[,2])),
+                    comp1 = post[,1]) # true = 1; false =2
 kable(gmm_group %>% filter(group==2))
 ```
 
 Compared to the K-means output, six new states joined the smaller cluster. They are: AK, AZ, FL, NV, NJ, TX. Again, IL is not part of the smaller cluster. 
 
+```{r p6map, fig.width = 12,fig.height=6}
+map_cluster <-gmm_group %>% full_join(state_maps,by="state")
+map_cluster %>% filter(state=="Wisconsin")%>% select(group)
+g1 <- ggplot()+
+  geom_sf(data = map_cluster,
+          aes(geometry=geometry,
+              fill = as.factor(group)),
+          lwd = 0.1)+
+  scale_fill_manual(values = c("#d01c8b", "#4d9220"),na.value = "darkgray", name = "Cluster Group")+
+  labs(title = "GMM Cluster for n=2 - Binary Map",
+       subtitle = "Wisconsin (NA) included for better geographical reference.")+
+  theme(legend.position="bottom")
+g2 <- ggplot()+
+  geom_sf(data = map_cluster,
+          aes(geometry=geometry,
+              fill = comp1),
+          lwd = 0.3)+
+  scale_fill_distiller(type="div",palette="PiYG",na.value = "darkgray",name = "Likelihood in Group 1")+
+  labs(title = "GMM Cluster for n=2 - Probability Map",
+       subtitle = "Wisconsin (NA) included for better geographical reference.")+
+  theme(legend.position="bottom")
+Rmisc::multiplot(g1, g2,cols=2)
+```
+
+Comparing the binary map to the probablistic map, we see that the coefficients for component 1 versus component 2 in the GMM are quite dichotomous - all but few states stand at the two extremes and the states with lighter shades such as CA, WA, and CO aren't too far away from the extremities either. Overall, the GMM gave a quite clear clustering result.
+
 # Plot and Discuss
-Let us first look back to the agglomerative model and extract the cut at k=2.
+Let us first look back to the agglomerative model and extract the cluster assignment at k=2.
 ```{r p70}
 cut <- cutree(hc_complete, k=2)
 ahc_group <- tibble(state,group = factor(cut))
@@ -179,7 +202,7 @@ g3 <- ggplot(data = bind_cols(df2,gmm_group)) +
   labs(title = "GMM(2)")
 Rmisc::multiplot(g1, g2, g3,cols=3)
 ```
-In these two dimensions, IL is indeed sort of marginal with respect to the two major groups. Both the K-means clustering and GMM(2) clustering captured the six states that stood out from our informal scatter plot observations in problem 1. GMM(2) captured six additional states into the smaller the cluster, but looking at total session length vs. real salary we don't quite understand why those six states stood out. We will attempt to see why in the plots below.
+In these two dimensions, IL - approximately (1.6,0.2) in plot 1 - is indeed sort of marginal with respect to the two major groups. As a result, it is perhaps reasonable that only the agglomerative mixture model assigned it to the minority block, while both the K-means clustering and GMM(2) clustering captured the six states that obviously stood out from our informal scatter plot observations in problem 1. Compared to k-means, the GMM(2) method captured six additional states into the smaller cluster, but looking at total session length vs. real salary we don't quite understand why those six states stood out. We will attempt to see why in the plots below.
 
 ```{r p72, fig.width = 12,fig.height=4}
 # display k-means & GMM cluster through coloring for total session length vs. real salary
@@ -195,11 +218,22 @@ g3 <- ggplot(data = bind_cols(df2,gmm_group)) +
 Rmisc::multiplot(g1, g2, g3, cols=3)
 ```
 
-We now see many more outliers in the colored plot for GMM(2). Those six additional states likely stood out due to having larger staff expenditure relative to their statesmen salary. However, IL does appear to be in the outlier group when looking at these two dimensions (expenditure vs. salary), yet neither the k-means model nor the gaussian mixture model was able to capture it.
+We now see many more outliers in the colored plot for GMM(2). Those six additional states likely stood out due to having larger staff expenditure relative to their statesmen salary. However, IL does appear to be in the outlier group when looking at these two dimensions (expenditure vs. salary), yet neither the k-means model nor the gaussian mixture model was able to capture this deviation by assigning IL to the smaller group.
 
 
 # Validatiion of Methods
+```{r p8, message=FALSE, warning=FALSE}
+internal_all <- clValid(data.frame(df2), 2:6, 
+                    clMethods = c("hierarchical", "kmeans", "model"), metric = "euclidean",
+                    validation = "internal",method="complete"); summary(internal_all)
+```
 
+We will use the silhouette statistic to evaluate the different clustering methods and configurations. A silhouette score as high as possible within the range [-1,1] indicates strong intra-cluster similarity and strong inter-cluster divergence. For k=2, by the silhouette measure, k-means has the best performance (closest to 1), and hierarchical model has the worst performance. The GMM performs in between We will examine the internal validation summary in the next problem.
 
 # Discussion of Validation
 
+According to the silhouette measure, k=2 is by far the best cluster number for all three methods. Further splits of existing clusters (in the case for hierarchical model) or a defined addition of cluster numbers will likely result in lower inter-cluster divergence at a larger trade=off compared to the gains from intra-cluster similarity, thus lowering the silhouette statistic. However, it's also worthy to mention that by the silhouette statistic, all three models perform quite similarly, since the statistics range between 0.62 and 0.65, which could be considered comparable without the presence of a hypothesis test.
+
+As mentioned previously, k=2 is the best cluster number conditioned on each clustering method. When k is set to 2 for all methods, the k-means method performs slightly better than the other two.
+
+I can think of one major reason driving towards a technically "sub-optimal" decision. Both the hierarchical model and the k-means model incur hard-partitioning, and only GMM allows for subtlety and mixture of cluster assignment based on likelihood. In many cases, topics in the social sciences involve many grayish or even ambiguous topics. In such event, hard clustering might not be the best option, since it may force us to ignore some signal or intricate differences. By examining GMM component scores, a scholar can gain broader insights into the interplay among multiple clusters. Should they like, they can further interpret the clustering in different ways by adjusting the cutoff thresholds to obtain an output clustering assignment more consistent with their claims. However, I am not sure this is a sound practice.
