@@ -9,38 +9,34 @@ output:
     number_sections: true
 ---
 
-```{r preamb}
+```{r preamb, message=FALSE, warning=FALSE}
 setwd("~/iCloud/CourseWork/josie-19-aut/problem-set-1")
 library(tidyverse)
-rm(list=ls())
+library(skimr)
+library(dendextend)
+library(seriation) # for diss plot
+library(knitr)
+#library(Rmisc) # will call namespace directly when needed
+rm(list=ls()) # clean working environment
 ```
-# Problem 1
+# Loading the Data
 ```{r p1}
 load("State Leg Prof Data & Codebook/legprof-components.v1.0.RData")
 ```
 
-# Problem 2
+# Cleaning the Data
 ```{r p2}
-sdz <- function(vec) { # function to standardize features
-  mu <- mean(vec)
-  dv <- sd(vec)
-  res <- (vec-mu)/dv
-  return(res)
-}
 df2 <- x %>% filter(sessid=="2009/10") %>%
   select(state,expend,salary_real,t_slength,slength) %>%
-  drop_na(expend,salary_real,t_slength,slength) %>%
-  mutate(expend = sdz(expend),
-         salary_real = sdz(salary_real),
-         t_slength = sdz(t_slength),
-         slength = sdz(slength)) %>%
-  mutate(state = (state %>% as.character() %>% factor(levels=state.name,labels=state.name)))
+  drop_na(expend,salary_real,t_slength,slength) # one is dropped. 49 are left.
+state <- df2 %>% pull(state) %>% factor(levels=state.name,labels=state.name)
+df2 <- df2 %>% select(-state) %>% scale() %>% tibble() # clean DF
 ```
 
-# Problem 3
+# Determining Clusterability
 
-## Visual Approach
-```{r p3}
+## Informal Approach
+```{r p3a}
 # visual inspection
 g1 <- ggplot(df2) +
   geom_point(aes(x=salary_real,y=t_slength))+
@@ -57,17 +53,153 @@ g4 <- ggplot(df2)+
 Rmisc::multiplot(g1, g2, g3, g4, cols=2)
 ```
 
-I can see roughly two bocks in the plots in the left column where "Real Salary" is ploted on the x-axis. I see some outliers in the two plots with "Expenditure" on the x-axis, but I don't see multiple clusters.
+I can see roughly two bocks in the plots in the left column where "Real Salary" is ploted on the x-axis. I see some outliers in the two plots with "Expenditure" on the x-axis, but I don't see multiple clusters at least in 2-D. However, the distribution of points is far from random/natural as well.
+
+## VAT Approach
+```{r p3b}
+df2_dist <- dist(df2) 
+dissplot(df2_dist)
+```
+
+The VAT shows roughly two clusters - a big one in the bottom right and a much smaller one in the top left. Within the big cluster, there also appears to be smaller sub-clusters.
 
 ## Hopkins Test
-The data size is not so big (49), so we will choose 10 as the sampling size.
+The data size is not so big (49), so we will choose 20 as the sampling size.
 
 ```{r}
-clustertend::hopkins(df2 %>% select(expend,salary_real,t_slength,slength),n=10)
-clustertend::hopkins(df2 %>% select(expend,slength),n=10)
-clustertend::hopkins(df2 %>% select(expend,t_slength),n=10)
-clustertend::hopkins(df2 %>% select(salary_real,slength),n=10)
-clustertend::hopkins(df2 %>% select(salary_real,t_slength),n=10)
-clustertend::hopkins(df2 %>% select(expend,salary_real),n=10)
+hop <- function(){ # function to perform the Hopkins test once
+  return(clustertend::hopkins(df2,n=10)$H)
+}
+set.seed(97323)
+hopstat = replicate(100,hop()) # we will run the hopkins test 100 times to avoid judgment based on one random test
+hist(hopstat,main="Hopkins Test Distribution for 09-10 State Legislature",
+     xlab="Hopkins Statistic",
+     ylab="Counts (total = 100)")
 ```
+
+From the plot we see that the central/majority tendency is around 0.15-0.20, which is much below the 0.5 threshold. We have reason to claim clusterbility.
+
+## Summary
+
+Based on informal scatter plots, the ODI plot, and the empirical distribution of the Hopkins statistic, we have strong reason to suspect the presence of clusters. We may proceed with the various clustering methods.
+
+# Simple Agglomerative Hiearchical Cluster
+```{r p4}
+hc_complete <- hclust(df2_dist, #use the distance matrix
+                      method = "complete"); 
+plot(hc_complete, hang = -1,labels = state,xlab="States") # dendrogram
+cuts <- cutree(hc_complete, 
+               k = c(3,4))
+table(`3 Clusters` = cuts[,1], 
+      `4 Clusters` = cuts[,2])
+```
+
+We will use the "complete" linkage method to capture a balanced overall grouping. In the analysis below, the letter n refers to the number of clusters. 
+
+Moving down from the top level (n=2), we first notice a bifurcation between CA, MA, NY, PA, OH, IL, and MI (the minority block) and all the other states (the majority block). The minority states tend do be Democratic states with either strong economic output or workers' presence.
+
+Moving one level down (n=3), we see CA breaking off the "minority block" and becomes the third cluster all by itself.
+
+Moving further down (n=4), we see MA and NY - highly-developed New England states - break off with PA, OH, IL, and MI - the majority being mid-western states whose economy is more driven by the manufacturing and agricultural sectors.
+
+At height < 4, we finally see the bigger block branch off (n=5). To be honest, I don't have any insights to this split. However, since this split occured at a lower level then NY and MA branching off, it is fair to say that the overall distance within the majority block is smaller than the distance between the two New England states and the Midwestern states.
+
+
+# K-means at n=2
+```{r p5}
+set.seed(1289)
+kmeans <- kmeans(df2, 
+                 centers = 2,
+                 nstart = 100)
+# the following code snippet is adapted from my personal submission 
+# to an assignment in Computational Social Science
+# Needed for USA polygons
+# devtools::install_github("hrbrmstr/albersusa")
+library(albersusa)
+# Albers equal-area conic convenience projection
+state_maps <- usa_sf("laea") %>% 
+  filter(name != "District of Columbia") %>%
+  mutate(state = as.character(name) %>% factor(levels=state.name,labels=state.name))
+kmeans_group <- tibble(state,group = factor(kmeans$cluster))
+map_cluster <- kmeans_group %>% full_join(state_maps,by="state")
+ggplot()+
+  geom_sf(data = map_cluster,
+          aes(geometry=geometry,
+              fill = as.factor(group)),
+          lwd = 0.1)+
+  scale_fill_discrete(name = "Cluster Group") +
+  labs(title = "K-means Cluster Map for n=2",
+       subtitle = "Wisconsin (NA) included for better geographical reference.")
+kable(kmeans_group %>% filter(group==2))
+```
+
+The minority block according to K-means (n=2) is almost the same as the results obtained via the Dendrogram. Only deviation is that IL now belongs to the majority group.
+
+# Gaussian Mixture Model
+```{r p6} 
+# additional libraries for GMM
+library(mixtools)
+library(plotGMM)
+set.seed(3919) 
+gmm1 <- mvnormalmixEM(df2, 
+                    k = 2)
+post <- gmm1$posterior
+gmm_group <- tibble(state, 
+                    group = factor(2-as.numeric(post[,1]>post[,2]))) # true = 1; false =2
+map_cluster <-gmm_group %>% full_join(state_maps,by="state")
+ggplot()+
+  geom_sf(data = map_cluster,
+          aes(geometry=geometry,
+              fill = as.factor(group)),
+          lwd = 0.1)+
+  scale_fill_discrete(name = "Cluster Group") +
+  labs(title = "GMM Cluster Map for n=2",
+       subtitle = "Wisconsin (NA) included for better geographical reference.")
+kable(gmm_group %>% filter(group==2))
+```
+
+Compared to the K-means output, six new states joined the smaller cluster. They are: AK, AZ, FL, NV, NJ, TX. Again, IL is not part of the smaller cluster. 
+
+# Plot and Discuss
+Let us first look back to the agglomerative model and extract the cut at k=2.
+```{r p70}
+cut <- cutree(hc_complete, k=2)
+ahc_group <- tibble(state,group = factor(cut))
+```
+```{r p71, fig.width = 12,fig.height=4}
+# display k-means & GMM cluster through coloring for total session length vs. real salary
+g1 <- ggplot(data = bind_cols(df2,ahc_group)) +
+  geom_point(aes(x=salary_real,y=t_slength,color=group))+
+  labs(title = "Agglomerative Hiearchical Model")
+g2 <- ggplot(data = bind_cols(df2,kmeans_group)) +
+  geom_point(aes(x=salary_real,y=t_slength,color=group))+
+  labs(title = "K-Means")
+g3 <- ggplot(data = bind_cols(df2,gmm_group)) +
+  geom_point(aes(x=salary_real,y=t_slength,color=group))+
+  labs(title = "GMM(2)")
+Rmisc::multiplot(g1, g2, g3,cols=3)
+```
+In these two dimensions, IL is indeed sort of marginal with respect to the two major groups. Both the K-means clustering and GMM(2) clustering captured the six states that stood out from our informal scatter plot observations in problem 1. GMM(2) captured six additional states into the smaller the cluster, but looking at total session length vs. real salary we don't quite understand why those six states stood out. We will attempt to see why in the plots below.
+
+```{r p72, fig.width = 12,fig.height=4}
+# display k-means & GMM cluster through coloring for total session length vs. real salary
+g1 <- ggplot(data = bind_cols(df2,ahc_group)) +
+  geom_point(aes(x=salary_real,y=expend,color=group))+
+  labs(title = "Agglomerative Hiearchical Model")
+g2 <- ggplot(data = bind_cols(df2,kmeans_group)) +
+  geom_point(aes(x=salary_real,y=expend,color=group))+
+  labs(title = "K-Means")
+g3 <- ggplot(data = bind_cols(df2,gmm_group)) +
+  geom_point(aes(x=salary_real,y=expend,color=group))+
+  labs(title = "GMM(2)")
+Rmisc::multiplot(g1, g2, g3, cols=3)
+```
+
+We now see many more outliers in the colored plot for GMM(2). Those six additional states likely stood out due to having larger staff expenditure relative to their statesmen salary. However, IL does appear to be in the outlier group when looking at these two dimensions (expenditure vs. salary), yet neither the k-means model nor the gaussian mixture model was able to capture it.
+
+
+# Validatiion of Methods
+
+
+# Discussion of Validation
 
