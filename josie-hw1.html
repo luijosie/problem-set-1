@@ -1516,7 +1516,10 @@ library(tidyverse)
 library(skimr)
 library(dendextend)
 library(seriation) # for diss plot
-library(knitr)
+# additional libraries for GMM
+library(mixtools)
+library(plotGMM)
+library(knitr) # kable
 library(scales) # for color
 library(clValid) # for internal validation
 library(mclust) # for clValid
@@ -1671,17 +1674,7 @@ ggplot()+
 </div>
 <div id="gaussian-mixture-model" class="section level1">
 <h1><span class="header-section-number">6</span> Gaussian Mixture Model</h1>
-<pre class="r"><code># additional libraries for GMM
-library(mixtools)</code></pre>
-<pre><code>## mixtools package, version 1.1.0, Released 2017-03-10
-## This package is based upon work supported by the National Science Foundation under Grant No. SES-0518772.</code></pre>
-<pre><code>## 
-## Attaching package: 'mixtools'</code></pre>
-<pre><code>## The following object is masked from 'package:mclust':
-## 
-##     dmvnorm</code></pre>
-<pre class="r"><code>library(plotGMM)
-set.seed(3919) 
+<pre class="r"><code>set.seed(3919) 
 gmm1 &lt;- mvnormalmixEM(df2, 
                     k = 2)</code></pre>
 <pre><code>## number of iterations= 18</code></pre>
@@ -1763,12 +1756,7 @@ kable(gmm_group %&gt;% filter(group==2))</code></pre>
 </table>
 <p>Compared to the K-means output, six new states joined the smaller cluster. They are: AK, AZ, FL, NV, NJ, TX. Again, IL is not part of the smaller cluster.</p>
 <pre class="r"><code>map_cluster &lt;-gmm_group %&gt;% full_join(state_maps,by=&quot;state&quot;)
-map_cluster %&gt;% filter(state==&quot;Wisconsin&quot;)%&gt;% select(group)</code></pre>
-<pre><code>## # A tibble: 1 x 1
-##   group
-##   &lt;fct&gt;
-## 1 &lt;NA&gt;</code></pre>
-<pre class="r"><code>g1 &lt;- ggplot()+
+g1 &lt;- ggplot()+
   geom_sf(data = map_cluster,
           aes(geometry=geometry,
               fill = as.factor(group)),
@@ -1856,9 +1844,20 @@ Rmisc::multiplot(g1, g2, g3, cols=3)</code></pre>
 </div>
 <div id="discussion-of-validation" class="section level1">
 <h1><span class="header-section-number">9</span> Discussion of Validation</h1>
+<div id="takeaways" class="section level2">
+<h2><span class="header-section-number">9.1</span> Takeaways</h2>
 <p>According to the silhouette measure, k=2 is by far the best cluster number for all three methods. Further splits of existing clusters (in the case for hierarchical model) or a defined addition of cluster numbers will likely result in lower inter-cluster divergence at a larger trade=off compared to the gains from intra-cluster similarity, thus lowering the silhouette statistic. However, it’s also worthy to mention that by the silhouette statistic, all three models perform quite similarly, since the statistics range between 0.62 and 0.65, which could be considered comparable without the presence of a hypothesis test.</p>
+</div>
+<div id="optimal-clustering" class="section level2">
+<h2><span class="header-section-number">9.2</span> Optimal Clustering</h2>
 <p>As mentioned previously, k=2 is the best cluster number conditioned on each clustering method. When k is set to 2 for all methods, the k-means method performs slightly better than the other two.</p>
-<p>I can think of one major reason driving towards a technically “sub-optimal” decision. Both the hierarchical model and the k-means model incur hard-partitioning, and only GMM allows for subtlety and mixture of cluster assignment based on likelihood. In many cases, topics in the social sciences involve many grayish or even ambiguous topics. In such event, hard clustering might not be the best option, since it may force us to ignore some signal or intricate differences. By examining GMM component scores, a scholar can gain broader insights into the interplay among multiple clusters. Should they like, they can further interpret the clustering in different ways by adjusting the cutoff thresholds to obtain an output clustering assignment more consistent with their claims. However, I am not sure this is a sound practice.</p>
+</div>
+<div id="overriding-validation-results" class="section level2">
+<h2><span class="header-section-number">9.3</span> Overriding Validation Results</h2>
+<p>I can think of three major reason driving towards a technically “sub-optimal” decision. The first reason is that sometimes researchers might have to choose a soft-clustering method over hard-clustering method. Both the hierarchical model and the k-means model incur hard-partitioning, and only GMM allows for subtlety and mixture of cluster assignment based on likelihood. In many cases, topics in the social sciences involve many grayish or even ambiguous topics. In such event, hard clustering might not be the best option, since it may force us to ignore some signal or intricate differences. By examining GMM component scores, a scholar can gain broader insights into the interplay among multiple clusters. Should they like, they can further interpret the clustering in different ways by adjusting the cutoff thresholds to obtain an output clustering assignment more consistent with their claims. However, I am not sure this is a sound practice.</p>
+<p>Secondly, an optimal validation score might be considered over-fitting/over-partioning when evaluated based on subject-matter knowledge. The researcher might also want to limit the number of clusters if they feel the optimal algorithm is in fact over-performing. Again, similar to the first reason, they would override validation recommendations to better adjust to their theories.</p>
+<p>Thirdly, which in some ways could be considered trivial, there might not be a uniformly “optimal” configuration across different validation metrics. In this case the problem beccomes moot and the human expert has to make a decision.</p>
+</div>
 </div>
 
 
